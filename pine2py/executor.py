@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+import builtins as _builtins
 
 import numpy as np
 import pandas as pd
@@ -46,10 +47,49 @@ class Strategy:
         self.orders.append(Order(id=id, direction=direction, qty=abs(pos)))
         self.positions[id] = 0.0
 
+    def position_size(self) -> float:
+        total = 0.0
+        for _, size in self.positions.items():
+            total += size
+        return float(total)
+
 
 def execute_translated_code(code_str: str, df: pd.DataFrame) -> Dict[str, Any]:
-    # Prepare execution namespace
-    exec_globals: Dict[str, Any] = {}
+    # Prepare a sandboxed execution environment
+    # Restricted importer that allows only a small whitelist
+    _orig_import = _builtins.__import__
+
+    def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore
+        allowed_roots = {
+            'numpy', 'pandas', 'talib', 'pine2py'
+        }
+        root = name.split('.')[0]
+        if root not in allowed_roots:
+            raise ImportError("__import__ not found")
+        return _orig_import(name, globals, locals, fromlist, level)
+
+    safe_builtins: Dict[str, Any] = {
+        'len': len,
+        'range': range,
+        'enumerate': enumerate,
+        'min': min,
+        'max': max,
+        'float': float,
+        'int': int,
+        'bool': bool,
+        'str': str,
+        'print': print,
+        '__import__': _safe_import,
+        '__build_class__': _builtins.__build_class__,
+        'object': object,
+        'type': type,
+        'isinstance': isinstance,
+        'super': _builtins.super,
+        'property': _builtins.property,
+        'staticmethod': _builtins.staticmethod,
+        'classmethod': _builtins.classmethod,
+    }
+    exec_globals: Dict[str, Any] = {'__builtins__': safe_builtins, '__name__': 'pine2py_exec'}
     exec_locals: Dict[str, Any] = {}
     # Provide Strategy and dependencies
     exec_globals.update({

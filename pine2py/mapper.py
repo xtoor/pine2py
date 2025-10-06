@@ -13,6 +13,7 @@ BUILTIN_SPECIAL = {
     "bar_index": "df.index",
     "time": "df.index",
     "na": "np.nan",
+    "strategy.position_size": "self.position_size()",
 }
 
 # Strategy direction constants
@@ -65,6 +66,10 @@ def replace_builtins(expr: str) -> str:
 def replace_math(expr: str) -> str:
     expr = expr.replace("math.sqrt", "np.sqrt")
     expr = expr.replace("math.pow", "np.power")
+    expr = expr.replace("math.floor", "np.floor")
+    expr = expr.replace("math.ceil", "np.ceil")
+    expr = expr.replace("math.abs", "np.abs")
+    expr = expr.replace("abs(", "np.abs(")
     return expr
 
 

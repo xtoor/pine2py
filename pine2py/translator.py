@@ -5,9 +5,10 @@ from .parser import parse
 from .mapper import replace_builtins, replace_math, replace_logicals, parse_input_call, normalize_literal
 
 
-def _translate_line(line: str) -> List[str]:
+def _translate_line(line: str, pine_lineno: int | None = None) -> List[str]:
     code: List[str] = []
     s = line.strip()
+    prefix = f"# pine_line:{pine_lineno} " if pine_lineno is not None else ""
 
     # Inputs: x = input.int(14)
     assign_m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(input\.(?:int|float|bool|string))\s*\((.*)\)\s*$", s)
@@ -20,7 +21,7 @@ def _translate_line(line: str) -> List[str]:
         if parsed:
             _, default = parsed
         default = normalize_literal(default) or "None"
-        code.append(f"{var} = {default}")
+        code.append(f"{prefix}{var} = {default}")
         return code
 
     # strategy.entry/exit/close
@@ -29,28 +30,28 @@ def _translate_line(line: str) -> List[str]:
         m = re.match(r"strategy\.entry\s*\((.*)\)\s*", s)
         if m:
             args = m.group(1)
-            code.append(f"self.entry({args})")
+            code.append(f"{prefix}self.entry({args})")
             return code
 
     if s.startswith("strategy.exit"):
         m = re.match(r"strategy\.exit\s*\((.*)\)\s*", s)
         if m:
             args = m.group(1)
-            code.append(f"self.exit({args})")
+            code.append(f"{prefix}self.exit({args})")
             return code
 
     if s.startswith("strategy.close"):
         m = re.match(r"strategy\.close\s*\((.*)\)\s*", s)
         if m:
             args = m.group(1)
-            code.append(f"self.close({args})")
+            code.append(f"{prefix}self.close({args})")
             return code
 
     # plot(x)
     if s.startswith("plot("):
         inner = s[s.find("(") + 1 : s.rfind(")")]
         expr = replace_logicals(replace_math(replace_builtins(inner)))
-        code.append(f"plot({expr})")
+        code.append(f"{prefix}plot({expr})")
         return code
 
     # Assignments including ta.*
@@ -58,6 +59,22 @@ def _translate_line(line: str) -> List[str]:
         left, right = s.split("=", 1)
         var = left.strip()
         expr = right.strip()
+
+        # crossover/crossunder mapping: boolean arrays
+        m_cross = re.match(r"(ta\.)?(crossover|crossunder)\s*\(([^)]*)\)", expr)
+        if m_cross:
+            func = m_cross.group(2)
+            args = [a.strip() for a in m_cross.group(3).split(',')]
+            a1 = replace_builtins(args[0])
+            a2 = replace_builtins(args[1]) if len(args) > 1 else None
+            if a2 is None:
+                code.append(f"{prefix}{var} = np.zeros(len(df), dtype=bool)")
+            else:
+                if func == 'crossover':
+                    code.append(f"{prefix}{var} = (({a1}).shift(1) < ({a2}).shift(1)) & (({a1}) >= ({a2}))")
+                else:
+                    code.append(f"{prefix}{var} = (({a1}).shift(1) > ({a2}).shift(1)) & (({a1}) <= ({a2}))")
+            return code
 
         # ta.macd special: returns 3 series
         if expr.startswith("ta.macd"):
@@ -69,7 +86,7 @@ def _translate_line(line: str) -> List[str]:
                 slow = args[2] if len(args) > 2 else "26"
                 signal = args[3] if len(args) > 3 else "9"
                 code.append(
-                    f"{var}_macd, {var}_signal, {var}_hist = talib.MACD(({source}).values, fastperiod=int({fast}), slowperiod=int({slow}), signalperiod=int({signal}))"
+                    f"{prefix}{var}_macd, {var}_signal, {var}_hist = talib.MACD(({source}).values, fastperiod=int({fast}), slowperiod=int({slow}), signalperiod=int({signal}))"
                 )
                 return code
 
@@ -81,16 +98,16 @@ def _translate_line(line: str) -> List[str]:
             source = replace_builtins(args[0])
             length = args[1] if len(args) > 1 else "14"
             if func == "rsi":
-                code.append(f"{var} = talib.RSI(({source}).values, timeperiod=int({length}))")
+                code.append(f"{prefix}{var} = talib.RSI(({source}).values, timeperiod=int({length}))")
             elif func == "sma":
-                code.append(f"{var} = talib.SMA(({source}).values, timeperiod=int({length}))")
+                code.append(f"{prefix}{var} = talib.SMA(({source}).values, timeperiod=int({length}))")
             elif func == "ema":
-                code.append(f"{var} = talib.EMA(({source}).values, timeperiod=int({length}))")
+                code.append(f"{prefix}{var} = talib.EMA(({source}).values, timeperiod=int({length}))")
             return code
 
         # generic expression mapping
         expr = replace_logicals(replace_math(replace_builtins(expr)))
-        code.append(f"{var} = {expr}")
+        code.append(f"{prefix}{var} = {expr}")
         return code
 
     # if/else basic pass-through
@@ -100,11 +117,11 @@ def _translate_line(line: str) -> List[str]:
             stmt = stmt + ":"
         if stmt.startswith("else") and not stmt.rstrip().endswith(":"):
             stmt = stmt + ":"
-        code.append(stmt)
+        code.append(prefix + stmt)
         return code
 
     # fallback: expression statement
-    code.append(replace_logicals(replace_math(replace_builtins(s))))
+    code.append(prefix + replace_logicals(replace_math(replace_builtins(s))))
     return code
 
 
@@ -112,7 +129,7 @@ def translate(pine_code: str) -> str:
     ast = parse(pine_code)
     run_lines: List[str] = []
     for pl in ast.body:
-        for py in _translate_line(pl.raw):
+        for py in _translate_line(pl.raw, pl.lineno):
             run_lines.append(py)
 
     body = "\n        ".join(run_lines) if run_lines else "pass"

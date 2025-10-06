@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: pine2py
+Version: 0.1.0
+Summary: Translate TradingView Pine Script (v5/v6) to executable Python (pandas/TA-Lib)
+Author: pine2py contributors
+Requires-Python: >=3.9
+Requires-Dist: numpy>=1.24
+Requires-Dist: pandas>=2.0
+Requires-Dist: matplotlib>=3.7
+Requires-Dist: ta-lib>=0.4.28
+Requires-Dist: python-dateutil>=2.8
+Requires-Dist: ply>=3.11
+Dynamic: author
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

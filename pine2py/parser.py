@@ -2,6 +2,12 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+try:
+    # Optional PLY-based parser; falls back to regex parser if unavailable
+    from .ply_parser import parse_ply  # type: ignore
+except Exception:  # pragma: no cover
+    parse_ply = None  # type: ignore
+
 
 @dataclass
 class PineLine:
@@ -22,6 +28,15 @@ DECL_RE = re.compile(r"^\s*(indicator|strategy)\s*\((.*)\)\s*$")
 
 
 def parse(pine_code: str) -> PineScript:
+    # Prefer PLY parser if available
+    if parse_ply is not None:
+        try:
+            ast = parse_ply(pine_code)
+            if ast is not None:
+                return ast
+        except Exception:
+            # Fall back to lightweight parser
+            pass
     lines = pine_code.splitlines()
     header: List[PineLine] = []
     body: List[PineLine] = []
